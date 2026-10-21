@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>아침 대시보드</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #eef2f8; color: #1d2b3a; }
+  .wrap { width: min(94vw, 760px); margin: 0 auto; padding: 24px 0 40px; }
+  h1 { font-size: 1.6rem; text-align: center; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .card { background: #fff; border-radius: 18px; padding: 18px 22px; text-align: center;
+          box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+  .card h2 { margin: 0 0 10px; font-size: 1rem; color: #556; }
+  .big { font-size: 1.9rem; font-weight: 700; }
+  .sub { color: #556; font-size: .88rem; margin-top: 4px; }
+  .line { margin: 6px 0; }
+  .err { color: #b3261e; }
+  .grade { display: inline-block; padding: 1px 10px; border-radius: 12px; color: #fff; font-weight: 700; font-size: .85rem; }
+  .g0 { background: #2f6fed; } .g1 { background: #2e9e4f; } .g2 { background: #e08a00; } .g3 { background: #d63030; }
+  img { max-width: 100%; max-height: 240px; border-radius: 12px; }
+  button { font: inherit; margin-top: 10px; padding: 8px 16px; border: 0; border-radius: 10px;
+           background: #2f6fed; color: #fff; cursor: pointer; }
+  .src { font-size: .82rem; color: #667; text-align: center; margin: 16px 0 12px; line-height: 1.6; }
+  .api { background: #fff8dc; border-radius: 14px; padding: 14px 18px; font-size: .8rem; word-break: break-all; }
+  .api b { display: block; margin-bottom: 6px; }
+  .api div { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="greeting">안녕하세요!</h1>
+
+  <div class="grid">
+    <div class="card" id="c1"><h2>🌤️ 서울 날씨 · 미세먼지</h2><div class="body">불러오는 중...</div></div>
+    <div class="card" id="c2"><h2>💱 환율 (원화)</h2><div class="body">불러오는 중...</div></div>
+    <div class="card" id="c3"><h2>🎌 다음 공휴일</h2><div class="body">불러오는 중...</div></div>
+    <div class="card" id="c4"><h2>🐶 랜덤 강아지</h2><div class="body">불러오는 중...</div></div>
+  </div>
+
+  <div class="src">
+    출처: Weather data by Open-Meteo.com · 환율 Frankfurter(유럽중앙은행 기준 환율, 하루 한 번 발표) ·
+    공휴일 Nager.Date · 강아지 사진 Dog CEO<br>
+    미세먼지는 예측 모델 값이라 환경부 측정소 값과 다를 수 있어요
+  </div>
+
+  <div class="api">
+    <b>🔌 이 화면이 쓰는 API</b>
+    <div id="apiList"></div>
+  </div>
+</div>
+
+<script>
+  const API = {
+    weather: "https://api.open-meteo.com/v1/forecast?latitude=37.57&longitude=126.98&current=temperature_2m,weather_code&timezone=Asia%2FSeoul", // 🔌 서울 기온
+    air: "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=37.57&longitude=126.98&current=pm10,pm2_5&timezone=Asia%2FSeoul",     // 🔌 서울 미세먼지
+    usd: "https://api.frankfurter.dev/v1/latest?base=USD&symbols=KRW",              // 🔌 1달러 → 원
+    jpy: "https://api.frankfurter.dev/v1/latest?amount=100&base=JPY&symbols=KRW",   // 🔌 100엔 → 원
+    holiday: "https://date.nager.at/api/v3/NextPublicHolidays/KR",                  // 🔌 한국 다음 공휴일
+    dog: "https://dog.ceo/api/breeds/image/random"                                  // 🔌 랜덤 강아지 사진
+  };
+
+  const WEATHER = {
+    0: ["맑음", "☀️"], 1: ["대체로 맑음", "🌤️"], 2: ["구름 조금", "⛅"], 3: ["흐림", "☁️"],
+    45: ["안개", "🌫️"], 48: ["서리 안개", "🌫️"],
+    51: ["가벼운 이슬비", "🌦️"], 53: ["이슬비", "🌦️"], 55: ["강한 이슬비", "🌧️"],
+    56: ["얼어붙는 이슬비", "🌧️"], 57: ["얼어붙는 이슬비", "🌧️"],
+    61: ["약한 비", "🌧️"], 63: ["비", "🌧️"], 65: ["강한 비", "🌧️"], 66: ["얼어붙는 비", "🌧️"], 67: ["얼어붙는 비", "🌧️"],
+    71: ["약한 눈", "🌨️"], 73: ["눈", "❄️"], 75: ["강한 눈", "❄️"], 77: ["싸락눈", "❄️"],
+    80: ["약한 소나기", "🌦️"], 81: ["소나기", "🌧️"], 82: ["강한 소나기", "⛈️"],
+    85: ["약한 눈보라", "🌨️"], 86: ["강한 눈보라", "❄️"],
+    95: ["천둥번개", "⛈️"], 96: ["천둥번개와 우박", "⛈️"], 99: ["천둥번개와 우박", "⛈️"]
+  };
+  // 한국 환경부 기준 (µg/m³): [좋음 상한, 보통 상한, 나쁨 상한], 그 위는 매우나쁨
+  const LIMITS = { pm10: [30, 80, 150], pm2_5: [15, 35, 75] };
+  const GRADES = ["좋음", "보통", "나쁨", "매우나쁨"];
+
+  const $ = id => document.getElementById(id);
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function show(cardId, ...nodes) { $(cardId).querySelector(".body").replaceChildren(...nodes); }
+  function showError(cardId, msg) { show(cardId, el("div", "big", "⚠️"), el("div", "sub err", msg)); }
+  function showLoading(cardId) { show(cardId, document.createTextNode("불러오는 중...")); }
+
+  // 🔌 주소 상자: 실제로 부른 주소를 이름별로 보여 줌
+  const called = {};
+  function getJson(name, url) {
+    called[name] = url;
+    renderApiBox();
+    return fetch(url).then(r => { // 🔌 API 호출
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
+  }
+  function renderApiBox() {
+    const rows = Object.entries(called).map(([name, url]) => {
+      const row = el("div");
+      const a = el("a", null, "새 탭에서 원본 JSON 보기");
+      a.href = url; a.target = "_blank"; a.rel = "noopener";
+      row.append(name + ": " + url + " ", a);
+      return row;
+    });
+    $("apiList").replaceChildren(...rows);
+  }
+
+  // 인사말: 아침 / 점심 / 저녁
+  (function greet() {
+    const h = new Date().getHours();
+    $("greeting").textContent =
+      h >= 5 && h < 11 ? "☀️ 좋은 아침이에요!" :
+      h >= 11 && h < 17 ? "🍚 점심 맛있게 드세요!" : "🌙 좋은 저녁이에요!";
+  })();
+
+  // 카드 1: 날씨 + 미세먼지 (서로 따로 불러서 한쪽이 실패해도 다른 쪽은 보임)
+  function loadWeather() {
+    showLoading("c1");
+    const w = el("div", "line"), a = el("div", "line");
+    w.textContent = "날씨 불러오는 중..."; a.textContent = "미세먼지 불러오는 중...";
+    show("c1", w, a);
+    getJson("날씨", API.weather).then(d => {
+      const { temperature_2m, weather_code } = d.current;
+      const [text, emoji] = WEATHER[weather_code] || ["알 수 없음", "❓"];
+      w.replaceChildren(el("div", "big", `${emoji} ${temperature_2m}°C`), el("div", "sub", text));
+    }).catch(() => w.replaceChildren(el("div", "sub err", "⚠️ 날씨를 불러오지 못했어요")));
+    getJson("미세먼지", API.air).then(d => {
+      const { pm10, pm2_5 } = d.current;
+      if (pm10 == null || pm2_5 == null) throw new Error("no data");
+      const parts = [["PM10", "pm10", pm10], ["PM2.5", "pm2_5", pm2_5]].map(([label, kind, v]) => {
+        let g = LIMITS[kind].findIndex(max => v <= max);
+        if (g === -1) g = 3;
+        const span = el("span", "grade g" + g, GRADES[g]);
+        const wrap = el("span");
+        wrap.append(label + " ", span, " ");
+        return wrap;
+      });
+      a.replaceChildren(...parts);
+    }).catch(() => a.replaceChildren(el("div", "sub err", "⚠️ 미세먼지를 불러오지 못했어요")));
+  }
+
+  // 카드 2: 환율
+  function loadRate() {
+    showLoading("c2");
+    Promise.all([getJson("환율(달러)", API.usd), getJson("환율(엔)", API.jpy)]).then(([u, j]) => {
+      const f = n => "₩ " + n.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+      show("c2",
+        el("div", "line", "1달러 = " + f(u.rates.KRW)),
+        el("div", "line", "100엔 = " + f(j.rates.KRW)),
+        el("div", "sub", "기준 날짜: " + u.date + " (유럽중앙은행 기준 환율)"));
+    }).catch(() => showError("c2", "환율을 불러오지 못했어요"));
+  }
+
+  // 카드 3: 다음 공휴일 D-day
+  function loadHoliday() {
+    showLoading("c3");
+    getJson("공휴일", API.holiday).then(list => {
+      const next = list[0];
+      if (!next) throw new Error("no data");
+      const [y, m, d] = next.date.split("-").map(Number);
+      const now = new Date();
+      const days = Math.round((Date.UTC(y, m - 1, d) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+      show("c3",
+        el("div", "big", days === 0 ? "D-DAY" : "D-" + days),
+        el("div", "line", next.localName),
+        el("div", "sub", "날짜: " + next.date));
+    }).catch(() => showError("c3", "공휴일을 불러오지 못했어요"));
+  }
+
+  // 카드 4: 강아지 사진 + 새로고침
+  function loadDog() {
+    showLoading("c4");
+    getJson("강아지", API.dog).then(d => {
+      const img = el("img");
+      img.alt = "랜덤 강아지 사진";
+      img.onerror = () => showDogError();
+      img.onload = () => {
+        const btn = el("button", null, "🔄 새로고침");
+        btn.onclick = loadDog;
+        show("c4", img, el("div"), btn);
+      };
+      img.src = d.message;
+    }).catch(showDogError);
+  }
+  function showDogError() {
+    const btn = el("button", null, "🔄 다시 시도");
+    btn.onclick = loadDog;
+    show("c4", el("div", "big", "⚠️"), el("div", "sub err", "사진을 불러오지 못했어요"), btn);
+  }
+
+  // 카드마다 따로 호출 → 하나가 실패해도 나머지는 그대로 보임
+  loadWeather();
+  loadRate();
+  loadHoliday();
+  loadDog();
+</script>
+</body>
+</html>

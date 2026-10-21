@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>지금, 우주</title>
+<style>
+  :root { --ink: #e9e6ff; --mute: #8d89b8; --glow: #a99bff; --iss: #8ff3ff; --crew: #ffd9f2; --err: #ff8aa1; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: #010106; color: var(--ink);
+         font-family: "Pretendard", system-ui, sans-serif; overflow-x: hidden; }
+
+  /* 몽환적인 성운: 천천히 떠다니는 흐린 빛 덩어리 */
+  .nebula { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .nebula i { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .28;
+              animation: drift 38s ease-in-out infinite alternate; }
+  .nebula i:nth-child(1) { width: 55vmax; height: 55vmax; left: -15vmax; top: -10vmax; background: #3a1d8f; }
+  .nebula i:nth-child(2) { width: 48vmax; height: 48vmax; right: -14vmax; top: 18vh; background: #0f3a6e; animation-duration: 46s; animation-delay: -12s; }
+  .nebula i:nth-child(3) { width: 40vmax; height: 40vmax; left: 25vw; bottom: -22vmax; background: #6a1b68; opacity: .2; animation-duration: 52s; animation-delay: -20s; }
+  @keyframes drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(6vw,-5vh,0) scale(1.18); } }
+  #stars { position: fixed; inset: 0; z-index: 1; width: 100%; height: 100%; pointer-events: none; }
+  .vignette { position: fixed; inset: 0; z-index: 2; pointer-events: none;
+              background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.75) 100%); }
+
+  main { position: relative; z-index: 3; min-height: 100vh; display: flex; flex-direction: column; }
+  header { text-align: center; padding: 26px 16px 0; animation: rise 1.4s ease both; }
+  h1 { margin: 0; font-weight: 300; font-size: clamp(1.4rem, 3vw, 2rem); letter-spacing: .5em; padding-left: .5em;
+       text-shadow: 0 0 24px rgba(169,155,255,.7); }
+  .lead { margin: 8px 0 0; font-size: .86rem; color: var(--mute); letter-spacing: .08em; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+  .readout { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 16px 16px 0; }
+  .chip { min-width: 150px; padding: 10px 16px; border-radius: 14px; text-align: center; font-size: .82rem;
+          background: rgba(20,16,46,.45); border: 1px solid rgba(169,155,255,.18);
+          backdrop-filter: blur(10px); transition: border-color .6s, box-shadow .6s; }
+  .chip:hover { border-color: rgba(169,155,255,.5); box-shadow: 0 0 28px rgba(169,155,255,.18); }
+  .chip small { display: block; color: var(--mute); margin-bottom: 3px; letter-spacing: .1em; }
+  .chip b { font-weight: 500; font-size: 1.02rem; font-variant-numeric: tabular-nums; }
+  .chip.err b { color: var(--err); font-size: .85rem; font-weight: 400; white-space: normal; }
+
+  /* 하늘 지도: 가로=경도, 세로=위도 */
+  .map { position: relative; flex: 1; min-height: 420px; margin: 18px 4vw 0;
+         border-radius: 28px; border: 1px solid rgba(169,155,255,.1);
+         background:
+           linear-gradient(to right, rgba(169,155,255,.05) 1px, transparent 1px) 0 0 / 10% 100%,
+           linear-gradient(to bottom, rgba(169,155,255,.05) 1px, transparent 1px) 0 0 / 100% 16.666%;
+         animation: rise 1.8s ease both .2s; }
+  .map::after { content: "적도"; position: absolute; left: 12px; top: 50%; font-size: .7rem; color: rgba(169,155,255,.35); letter-spacing: .2em; }
+  .layer { position: absolute; inset: 0; }
+
+  #iss { position: absolute; width: 0; height: 0; opacity: 0; transition: left 5s linear, top 5s linear, opacity 1.2s ease; }
+  #iss.on { opacity: 1; }
+  #iss.jump { transition: opacity 1.2s ease; }
+  #iss .core { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; background: var(--iss);
+               box-shadow: 0 0 14px 3px var(--iss), 0 0 60px 14px rgba(143,243,255,.45); }
+  #iss .ring { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%;
+               border: 1px solid var(--iss); animation: ping 3.6s ease-out infinite; }
+  #iss .ring:nth-child(2) { animation-delay: 1.8s; }
+  #iss .label { position: absolute; left: 16px; top: -9px; white-space: nowrap; font-size: .78rem; letter-spacing: .12em; color: var(--iss); text-shadow: 0 0 10px rgba(143,243,255,.8); }
+  @keyframes ping { from { transform: scale(1); opacity: .8; } to { transform: scale(7); opacity: 0; } }
+  #trail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  .astro { position: absolute; width: 0; height: 0; animation: orbit var(--t) linear infinite; animation-delay: var(--dl); opacity: 0; animation-fill-mode: backwards; }
+  .astro.in { opacity: 1; transition: opacity 1.6s ease var(--fd); }
+  .astro:hover, .astro:focus-within { animation-play-state: paused; z-index: 6; }
+  @keyframes orbit { from { transform: rotate(0deg) translateX(var(--r)) rotate(0deg); } to { transform: rotate(360deg) translateX(var(--r)) rotate(-360deg); } }
+  .astro a { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; display: block; border-radius: 50%; outline: none; }
+  .astro a::before { content: ""; position: absolute; left: 11px; top: 11px; width: 10px; height: 10px; border-radius: 50%;
+                     background: var(--crew); box-shadow: 0 0 10px 2px var(--crew), 0 0 30px 6px rgba(255,217,242,.35);
+                     transition: transform .5s cubic-bezier(.2,.8,.2,1), box-shadow .5s; animation: twinkle var(--tw) ease-in-out infinite; }
+  .astro a:hover::before, .astro a:focus-visible::before { transform: scale(2.1); box-shadow: 0 0 16px 4px var(--crew), 0 0 60px 14px rgba(255,217,242,.5); animation: none; }
+  .astro.tg a::before { background: #ffe9a8; box-shadow: 0 0 10px 2px #ffe9a8, 0 0 30px 6px rgba(255,233,168,.35); }
+  @keyframes twinkle { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+  .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--mute);
+            pointer-events: none; }
+  .center .box { pointer-events: auto; }
+  .msg-err { color: var(--err); }
+  button { font: inherit; margin-top: 12px; padding: 9px 20px; border-radius: 999px; cursor: pointer; color: var(--ink);
+           background: rgba(169,155,255,.12); border: 1px solid rgba(169,155,255,.35); transition: background .4s, box-shadow .4s; }
+  button:hover { background: rgba(169,155,255,.25); box-shadow: 0 0 24px rgba(169,155,255,.3); }
+
+  #tip { position: fixed; z-index: 20; pointer-events: none; max-width: 260px; padding: 12px 16px; border-radius: 14px;
+         background: rgba(12,9,32,.82); border: 1px solid rgba(169,155,255,.35); backdrop-filter: blur(12px);
+         box-shadow: 0 0 40px rgba(120,100,255,.25); font-size: .83rem; line-height: 1.6;
+         opacity: 0; transform: translateY(6px); transition: opacity .35s ease, transform .35s ease; }
+  #tip.show { opacity: 1; transform: none; }
+  #tip b { display: block; font-size: 1rem; font-weight: 500; margin-bottom: 2px; }
+  #tip .hint { color: var(--glow); margin-top: 4px; }
+
+  footer { position: relative; z-index: 3; width: min(94vw, 780px); margin: 0 auto; padding: 18px 0 30px; }
+  .src { font-size: .78rem; color: var(--mute); text-align: center; line-height: 1.7; margin-bottom: 12px; }
+  .api { background: rgba(20,16,46,.45); border: 1px solid rgba(169,155,255,.16); border-radius: 14px; padding: 12px 16px;
+         font-size: .76rem; word-break: break-all; color: #b9b5e3; }
+  .api b { display: block; margin-bottom: 6px; color: var(--ink); font-weight: 500; }
+  .api div { margin-bottom: 5px; }
+  .api a { color: var(--iss); transition: text-shadow .4s; }
+  .api a:hover { text-shadow: 0 0 10px var(--iss); }
+
+  @media (prefers-reduced-motion: reduce) { .nebula i, .astro, .astro a::before, #iss .ring { animation: none; } #iss { transition: opacity 1.2s; } }
+</style>
+</head>
+<body>
+<div class="nebula"><i></i><i></i><i></i></div>
+<canvas id="stars"></canvas>
+<div class="vignette"></div>
+
+<main>
+  <header>
+    <h1>지금, 우주</h1>
+    <p class="lead">국제우주정거장(ISS)과 지금 우주에 있는 사람들</p>
+  </header>
+
+  <div class="readout">
+    <div class="chip" id="chipLat"><small>ISS 위도</small><b>-</b></div>
+    <div class="chip" id="chipLon"><small>ISS 경도</small><b>-</b></div>
+    <div class="chip" id="chipTime"><small>기준 시각</small><b>-</b></div>
+    <div class="chip" id="chipPeople"><small>우주에 있는 사람</small><b>-</b></div>
+  </div>
+
+  <div class="map" id="map">
+    <canvas id="trail" class="layer"></canvas>
+    <div class="layer" id="crew"></div>
+    <div id="iss"><span class="ring"></span><span class="ring"></span><span class="core"></span><span class="label">ISS</span></div>
+    <div class="center" id="center"><div class="box">불러오는 중...</div></div>
+  </div>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<footer>
+  <div class="src">
+    데이터 출처: Open Notify (open-notify.org) · ISS 위치는 5초마다 새로 불러와요<br>
+    별을 누르면 그 사람(또는 우주정거장)에 대한 Wikipedia 검색 결과가 새 탭에서 열려요
+  </div>
+  <div class="api">
+    <b>🔌 이 화면이 쓰는 API</b>
+    <div>ISS 위치: <span id="u1">-</span> <a id="l1" href="#" target="_blank" rel="noopener">새 탭에서 원본 JSON 보기</a></div>
+    <div>우주에 있는 사람: <span id="u2">-</span> <a id="l2" href="#" target="_blank" rel="noopener">새 탭에서 원본 JSON 보기</a></div>
+  </div>
+</footer>
+
+<script>
+  const API = {
+    iss: "http://api.open-notify.org/iss-now.json", // 🔌 ISS 현재 위치 (위도·경도)
+    astros: "http://api.open-notify.org/astros.json" // 🔌 지금 우주에 있는 사람들
+  };
+  const WIKI = "https://en.wikipedia.org/w/index.php?search="; // 🔌 클릭하면 열리는 관련 기사 검색
+
+  const $ = id => document.getElementById(id);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function chip(id, value, isErr) {
+    const c = $(id);
+    c.classList.toggle("err", !!isErr);
+    c.querySelector("b").textContent = value;
+  }
+  function setApi(n, url) { $("u" + n).textContent = url; $("l" + n).href = url; }
+  function setCenter(text, retry, isErr) {
+    const c = $("center");
+    c.replaceChildren();
+    if (!text) return;
+    const box = document.createElement("div");
+    box.className = "box" + (isErr ? " msg-err" : "");
+    box.textContent = text;
+    if (retry) {
+      box.append(document.createElement("br"));
+      const b = document.createElement("button");
+      b.textContent = "다시 시도"; b.onclick = retry;
+      box.append(b);
+    }
+    c.append(box);
+  }
+  // 실제 응답이 아니거나 값이 없으면 사용 오류로 처리한다 (가짜 데이터를 만들지 않음)
+  async function getJson(url) {
+    if (location.protocol === "https:") throw new Error("이 API는 http만 지원해서 https 페이지에서는 막혀요");
+    const r = await fetch(url); // 🔌 API 호출
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    if (d.message !== "success") throw new Error("응답이 success가 아니에요");
+    return d;
+  }
+  function errText(e) { return (e && e.message) ? e.message : "응답이 없어요"; }
+
+  /* ───── 별이 가득한 배경 (마우스에 따라 부드럽게 시차 이동) ───── */
+  const cv = $("stars"), ctx = cv.getContext("2d");
+  let W, H, stars = [], mx = 0, my = 0, cx = 0, cy = 0;
+  function resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    stars = Array.from({ length: Math.round(W * H / 5500) }, () => ({
+      x: Math.random() * W, y: Math.random() * H, z: Math.random(), p: Math.random() * 6.28,
+      s: .3 + Math.random() * 1.3
+    }));
+  }
+  function frame(t) {
+    cx += (mx - cx) * .04; cy += (my - cy) * .04;   // 부드러운 추적
+    ctx.clearRect(0, 0, W, H);
+    for (const s of stars) {
+      const a = reduce ? .6 : .25 + .6 * (.5 + .5 * Math.sin(t / 1400 + s.p));
+      const x = (s.x + cx * s.z * 26 + W) % W, y = (s.y + cy * s.z * 26 + H) % H;
+      ctx.globalAlpha = a * (.4 + s.z * .6);
+      ctx.fillStyle = s.z > .85 ? "#cfc6ff" : "#fff";
+      ctx.beginPath(); ctx.arc(x, y, s.s * (.5 + s.z), 0, 6.28); ctx.fill();
+    }
+    if (!reduce) requestAnimationFrame(frame);
+  }
+  addEventListener("resize", () => { resize(); drawTrail(); });
+  addEventListener("pointermove", e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
+  resize(); requestAnimationFrame(frame);
+
+  /* ───── ISS 위치 + 지나온 길 ───── */
+  const issEl = $("iss"), trailCv = $("trail"), tctx = trailCv.getContext("2d");
+  const trail = [];
+  const pos = (lat, lon) => [(lon + 180) / 360, (90 - lat) / 180]; // 0~1 비율
+  function drawTrail() {
+    const r = trailCv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+    trailCv.width = r.width * dpr; trailCv.height = r.height * dpr;
+    tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    tctx.clearRect(0, 0, r.width, r.height);
+    trail.forEach((p, i) => {
+      const [fx, fy] = pos(p.lat, p.lon);
+      tctx.globalAlpha = (i + 1) / trail.length * .55;
+      tctx.fillStyle = "#8ff3ff";
+      tctx.beginPath(); tctx.arc(fx * r.width, fy * r.height, 1.6, 0, 6.28); tctx.fill();
+    });
+  }
+  let issOk = false;
+  async function updateIss() {
+    setApi(1, API.iss);
+    try {
+      const d = await getJson(API.iss);
+      const lat = Number(d.iss_position && d.iss_position.latitude);
+      const lon = Number(d.iss_position && d.iss_position.longitude);
+      const ts = Number(d.timestamp);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(ts)) throw new Error("위치 값이 없어요");
+      const [fx, fy] = pos(lat, lon);
+      const last = trail[trail.length - 1];
+      issEl.classList.toggle("jump", !!last && Math.abs(last.lon - lon) > 90); // 날짜변경선을 넘을 땐 순간이동 대신 페이드
+      issEl.style.left = fx * 100 + "%"; issEl.style.top = fy * 100 + "%";
+      issEl.classList.add("on");
+      trail.push({ lat, lon }); if (trail.length > 90) trail.shift();
+      drawTrail();
+      chip("chipLat", lat.toFixed(2) + "°");
+      chip("chipLon", lon.toFixed(2) + "°");
+      chip("chipTime", new Date(ts * 1000).toLocaleTimeString("ko-KR"));
+      issOk = true;
+    } catch (e) {
+      issOk = false;
+      issEl.classList.remove("on");
+      ["chipLat", "chipLon", "chipTime"].forEach(id => chip(id, "⚠️ 사용 오류: ISS 위치를 불러오지 못했어요 (" + errText(e) + ")", true));
+    }
+  }
+  updateIss();
+  setInterval(updateIss, 5000);
+
+  /* ───── 지금 우주에 있는 사람들 ───── */
+  function hash(str) {
+    let h = 2166136261;
+    for (const ch of str) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  const tip = $("tip");
+  function showTip(p, x, y) {
+    tip.replaceChildren();
+    const b = document.createElement("b"); b.textContent = p.name;
+    const line = document.createElement("div"); line.textContent = "탑승: " + p.craft;
+    const hint = document.createElement("div"); hint.className = "hint"; hint.textContent = "클릭하면 관련 기사(Wikipedia 검색)로 이동";
+    tip.append(b, line, hint);
+    moveTip(x, y);
+    tip.classList.add("show");
+  }
+  function moveTip(x, y) {
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let l = x + 18, t = y + 18;
+    if (l + w > innerWidth - 8) l = x - w - 18;
+    if (t + h > innerHeight - 8) t = y - h - 18;
+    tip.style.left = Math.max(8, l) + "px"; tip.style.top = Math.max(8, t) + "px";
+  }
+  async function loadCrew() {
+    setApi(2, API.astros);
+    $("crew").replaceChildren();
+    chip("chipPeople", "불러오는 중...");
+    try {
+      const d = await getJson(API.astros);
+      if (!Array.isArray(d.people) || !d.people.length) throw new Error("사람 목록이 비어 있어요");
+      const people = d.people.filter(p => p && p.name && p.craft);
+      if (!people.length) throw new Error("사람 목록이 비어 있어요");
+      chip("chipPeople", people.length + "명");
+      const crew = $("crew");
+      const byCraft = {};
+      people.forEach(p => (byCraft[p.craft] = byCraft[p.craft] || []).push(p));
+      Object.entries(byCraft).forEach(([craft, list]) => {
+        const hc = hash(craft);
+        const bx = 18 + (hc % 6400) / 100, by = 22 + ((hc >>> 12) % 5400) / 100; // 우주선별 무리의 중심 (%)
+        list.forEach((p, i) => {
+          const hp = hash(p.name);
+          const el = document.createElement("div");
+          el.className = "astro" + (/tiangong/i.test(craft) ? " tg" : "");
+          el.style.left = bx + "%"; el.style.top = by + "%";
+          el.style.setProperty("--r", (34 + (hp % 60) + i * 6) + "px");
+          el.style.setProperty("--t", (50 + (hp % 50)) + "s");
+          el.style.setProperty("--dl", "-" + (hp % 60) + "s");
+          el.style.setProperty("--tw", (2.5 + (hp % 25) / 10) + "s");
+          el.style.setProperty("--fd", (i * .12) + "s");
+          const a = document.createElement("a");
+          a.href = WIKI + encodeURIComponent(p.name);
+          a.target = "_blank"; a.rel = "noopener";
+          a.setAttribute("aria-label", p.name + " (" + p.craft + ")");
+          a.addEventListener("mouseenter", e => showTip(p, e.clientX, e.clientY));
+          a.addEventListener("mousemove", e => moveTip(e.clientX, e.clientY));
+          a.addEventListener("mouseleave", () => tip.classList.remove("show"));
+          a.addEventListener("focus", () => { const r = a.getBoundingClientRect(); showTip(p, r.right, r.top); });
+          a.addEventListener("blur", () => tip.classList.remove("show"));
+          el.append(a); crew.append(el);
+          requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("in")));
+        });
+      });
+      setCenter("");
+    } catch (e) {
+      chip("chipPeople", "⚠️ 사용 오류: " + errText(e), true);
+      setCenter("우주에 있는 사람 목록을 불러오지 못했어요 (" + errText(e) + ")\nAPI 응답이 없거나 값이 비어 있어서 화면을 만들지 않았어요.", loadCrew, true);
+      $("center").firstChild.style.whiteSpace = "pre-line";
+    }
+  }
+  loadCrew();
+</script>
+</body>
+</html>

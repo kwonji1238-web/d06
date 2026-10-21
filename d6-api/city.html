@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도시 날씨·미세먼지</title>
+<style>
+  body { margin: 0; min-height: 100vh; font-family: system-ui, sans-serif;
+         background: #e8f1fb; color: #1d2b3a; display: grid; place-items: center; }
+  .wrap { width: min(92vw, 440px); padding: 24px 0; }
+  h1 { font-size: 1.3rem; text-align: center; margin: 0 0 14px; }
+  form { display: flex; gap: 8px; margin-bottom: 14px; }
+  input, button { font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid #bbb; }
+  input { flex: 1; min-width: 0; }
+  button { background: #2f6fed; color: #fff; border: 0; cursor: pointer; }
+  .card { background: #fff; border-radius: 18px; padding: 20px 24px; margin-bottom: 12px;
+          box-shadow: 0 6px 18px rgba(0,0,0,.08); text-align: center; }
+  .card h2 { margin: 0 0 8px; font-size: 1rem; color: #556; }
+  .big { font-size: 2.2rem; font-weight: 700; }
+  .sub { color: #556; font-size: .9rem; margin-top: 4px; }
+  .grade { display: inline-block; padding: 2px 12px; border-radius: 12px; color: #fff; font-weight: 700; }
+  .g0 { background: #2f6fed; } .g1 { background: #2e9e4f; }
+  .g2 { background: #e08a00; } .g3 { background: #d63030; }
+  .row { display: flex; justify-content: space-around; gap: 8px; }
+  .src { font-size: .85rem; color: #667; text-align: center; margin: 6px 0 12px; }
+  .api { background: #fff8dc; border-radius: 14px; padding: 14px 18px; font-size: .82rem; word-break: break-all; }
+  .api b { display: block; margin-bottom: 6px; }
+  .api div { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏙️ 도시 날씨·미세먼지</h1>
+  <form id="form">
+    <input id="name" value="서울" placeholder="도시 이름 (예: 부산, Tokyo)" aria-label="도시 이름">
+    <button>검색</button>
+  </form>
+
+  <div class="card" id="place"><h2>📍 도시</h2><div class="big">-</div></div>
+  <div class="card" id="weather"><h2>🌡️ 기온</h2><div class="big">-</div></div>
+  <div class="card" id="air"><h2>😷 미세먼지</h2><div class="big">-</div></div>
+
+  <div class="src">Weather data by Open-Meteo.com · 미세먼지는 예측 모델 값이라 환경부 측정소 값과 다를 수 있어요</div>
+
+  <div class="api">
+    <b>🔌 이 화면이 쓰는 API</b>
+    <div>1️⃣ <span id="u1">-</span> <a id="l1" href="#" target="_blank" rel="noopener">새 탭에서 원본 JSON 보기</a></div>
+    <div>2️⃣ <span id="u2">-</span> <a id="l2" href="#" target="_blank" rel="noopener">새 탭에서 원본 JSON 보기</a></div>
+    <div>3️⃣ <span id="u3">-</span> <a id="l3" href="#" target="_blank" rel="noopener">새 탭에서 원본 JSON 보기</a></div>
+  </div>
+</div>
+
+<script>
+  const API = {
+    geo: "https://geocoding-api.open-meteo.com/v1/search",       // 🔌 1번: 도시 이름 → 위도·경도
+    weather: "https://api.open-meteo.com/v1/forecast",           // 🔌 2번: 좌표 → 기온
+    air: "https://air-quality-api.open-meteo.com/v1/air-quality" // 🔌 3번: 좌표 → pm10, pm2_5
+  };
+
+  // 한국 환경부 기준 (µg/m³): [좋음 상한, 보통 상한, 나쁨 상한], 그 위는 매우나쁨
+  const LIMITS = { pm10: [30, 80, 150], pm2_5: [15, 35, 75] };
+  const GRADES = ["좋음", "보통", "나쁨", "매우나쁨"];
+  function grade(kind, v) {
+    const i = LIMITS[kind].findIndex(max => v <= max);
+    return i === -1 ? 3 : i;
+  }
+
+  const $ = id => document.getElementById(id);
+  function setCard(id, html, isText) {
+    const box = $(id).querySelector(".big");
+    box.textContent = "";
+    if (isText) box.textContent = html; else box.append(...html);
+  }
+  function setApi(n, url) { $("u" + n).textContent = url; $("l" + n).href = url; }
+  function fail(id, msg) {
+    const box = $(id).querySelector(".big");
+    box.textContent = "⚠️";
+    const s = document.createElement("div");
+    s.className = "sub"; s.textContent = msg;
+    box.append(s);
+  }
+  async function getJson(url) {
+    const r = await fetch(url); // 🔌 API 호출
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }
+  function sub(text) {
+    const d = document.createElement("div");
+    d.className = "sub"; d.textContent = text;
+    return d;
+  }
+
+  async function search(name) {
+    ["place", "weather", "air"].forEach(id => setCard(id, "불러오는 중...", true));
+
+    // 1번 호출: 도시 이름 → 위도·경도
+    const geoUrl = `${API.geo}?name=${encodeURIComponent(name)}&count=1&language=ko`;
+    setApi(1, geoUrl);
+    let place;
+    try {
+      const geo = await getJson(geoUrl);
+      place = geo.results && geo.results[0];
+    } catch (e) {
+      ["place", "weather", "air"].forEach(id => fail(id, "도시를 찾지 못했어요"));
+      return;
+    }
+    if (!place) {
+      ["place", "weather", "air"].forEach(id => fail(id, "그런 도시가 없어요"));
+      return;
+    }
+    const { latitude, longitude } = place; // ← 1번 응답의 이 두 값이 2번·3번 주소에 들어감
+    setCard("place", [document.createTextNode(place.name),
+      sub([place.admin1, place.country].filter(Boolean).join(", ") + ` (위도 ${latitude}, 경도 ${longitude})`)]);
+
+    // 2번·3번 호출: 카드별로 따로 불러서 한쪽이 실패해도 다른 쪽은 보임
+    const wUrl = `${API.weather}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&timezone=auto`;
+    const aUrl = `${API.air}?latitude=${latitude}&longitude=${longitude}&current=pm10,pm2_5&timezone=auto`;
+    setApi(2, wUrl);
+    setApi(3, aUrl);
+
+    getJson(wUrl).then(d => {
+      setCard("weather", [document.createTextNode(d.current.temperature_2m + "°C"),
+        sub("기준 시각: " + d.current.time.replace("T", " "))]);
+    }).catch(() => fail("weather", "기온을 불러오지 못했어요"));
+
+    getJson(aUrl).then(d => {
+      const { pm10, pm2_5, time } = d.current;
+      if (pm10 == null || pm2_5 == null) throw new Error("no data");
+      const row = document.createElement("div");
+      row.className = "row";
+      [["미세먼지 PM10", "pm10", pm10], ["초미세먼지 PM2.5", "pm2_5", pm2_5]].forEach(([label, kind, v]) => {
+        const g = grade(kind, v);
+        const col = document.createElement("div");
+        const tag = document.createElement("span");
+        tag.className = "grade g" + g; tag.textContent = GRADES[g];
+        col.append(sub(label), tag, sub(v + " µg/m³"));
+        row.append(col);
+      });
+      setCard("air", [row, sub("기준 시각: " + time.replace("T", " ") + " · 환경부 기준 등급")]);
+    }).catch(() => fail("air", "미세먼지를 불러오지 못했어요"));
+  }
+
+  $("form").addEventListener("submit", e => {
+    e.preventDefault();
+    const name = $("name").value.trim();
+    if (name) search(name);
+  });
+  search($("name").value);
+</script>
+</body>
+</html>

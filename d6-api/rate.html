@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>환율 계산기</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         font-family: system-ui, sans-serif; background: #eef4ee; color: #1d2b3a; }
+  .wrap { width: min(92vw, 400px); padding: 24px 0; }
+  .card { background: #fff; border-radius: 20px; padding: 28px 32px;
+          box-shadow: 0 8px 24px rgba(0,0,0,.1); text-align: center; }
+  h1 { margin: 0 0 16px; font-size: 1.3rem; }
+  .row { display: flex; gap: 8px; margin-bottom: 16px; }
+  input, select { font: inherit; padding: 10px; border: 1px solid #bbb; border-radius: 10px; }
+  input { flex: 1; min-width: 0; }
+  .result { font-size: 2rem; font-weight: 700; min-height: 2.4rem; }
+  .date { margin-top: 6px; color: #556; font-size: .95rem; }
+  .src { margin-top: 12px; font-size: .85rem; color: #667; }
+  .api { margin-top: 16px; background: #fff8dc; border-radius: 14px; padding: 14px 18px;
+         font-size: .85rem; word-break: break-all; }
+  .api b { display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>💱 환율 계산기</h1>
+    <div class="row">
+      <input id="amount" type="number" min="0" step="any" value="100" aria-label="금액">
+      <select id="currency" aria-label="통화">
+        <option value="USD">USD 🇺🇸 달러</option>
+        <option value="JPY">JPY 🇯🇵 엔</option>
+        <option value="EUR">EUR 🇪🇺 유로</option>
+        <option value="CNY">CNY 🇨🇳 위안</option>
+      </select>
+    </div>
+    <div class="result" id="result">불러오는 중...</div>
+    <div class="date" id="date"></div>
+    <div class="src">데이터 출처: Frankfurter (유럽중앙은행 기준 환율, 하루 한 번 발표)</div>
+  </div>
+
+  <div class="api">
+    <b>🔌 이 화면이 쓰는 API</b>
+    <span id="apiUrl">-</span><br>
+    <a id="apiLink" href="#" target="_blank" rel="noopener">새 탭에서 원본 JSON 보기</a>
+  </div>
+</div>
+
+<script>
+  const API = {
+    base: "https://api.frankfurter.dev/v1/latest", // 🔌 환율 주소
+    to: "KRW"                                      // 🔌 바꿀 통화: 원화
+  };
+
+  const $ = id => document.getElementById(id);
+
+  function convert() {
+    const amount = $("amount").value;
+    const from = $("currency").value;
+    if (amount === "" || Number(amount) < 0) {
+      $("result").textContent = "금액을 입력하세요";
+      $("date").textContent = "";
+      return;
+    }
+    const url = `${API.base}?amount=${encodeURIComponent(amount)}&base=${from}&symbols=${API.to}`;
+    $("apiUrl").textContent = url;
+    $("apiLink").href = url;
+    $("result").textContent = "불러오는 중...";
+    $("date").textContent = "";
+
+    fetch(url) // 🔌 API 호출
+      .then(r => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(data => {
+        if ($("amount").value !== amount || $("currency").value !== from) return; // 오래된 응답 무시
+        const won = data.rates[API.to];
+        $("result").textContent = "₩ " + won.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+        $("date").textContent = "기준 날짜: " + data.date + " (유럽중앙은행 기준 환율)";
+      })
+      .catch(() => {
+        $("result").textContent = "⚠️ 환율을 불러오지 못했어요";
+        $("date").textContent = "잠시 뒤에 다시 시도해 주세요";
+      });
+  }
+
+  $("amount").addEventListener("input", convert);
+  $("currency").addEventListener("change", convert);
+  convert();
+</script>
+</body>
+</html>
