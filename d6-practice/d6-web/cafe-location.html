@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>성북구 카페 현황</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; background: #faf6f1; color: #3b2f2f; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .src { font-size: .8rem; color: #7a6652; margin: 2px 0; }
+  .map-wrap { background: #fff; border-radius: 12px; padding: 8px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  svg { width: 100%; height: auto; display: block; }
+  .dong { stroke: #fff; stroke-width: 3; stroke-linejoin: round; cursor: pointer; transition: opacity .15s; }
+  .dong:hover { opacity: .8; }
+  .dong.sel { stroke: #3b2f2f; stroke-width: 4; }
+  .dlabel { font-size: 15px; font-weight: 700; fill: #3b2f2f; text-anchor: middle; pointer-events: none; }
+  .dlabel.sm { font-size: 12px; }
+  .dcount { font-size: 12px; fill: #5a4636; text-anchor: middle; pointer-events: none; }
+  .map-note { font-size: .75rem; color: #7a6652; margin: 4px 4px 0; }
+  .search { display: flex; gap: 8px; margin: 12px 0 4px; }
+  .search input { flex: 1; box-sizing: border-box; padding: 12px; font-size: 1rem; border: 2px solid #c9b8a6; border-radius: 10px; }
+  .search button { padding: 0 14px; border: 0; border-radius: 10px; background: #8b5e3c; color: #fff; font-size: .9rem; cursor: pointer; }
+  .count { margin: 8px 0; color: #7a6652; font-size: .9rem; }
+  .card { background: #fff; border-radius: 10px; padding: 12px 14px; margin: 8px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card .name { font-size: 1.35rem; font-weight: 800; margin: 0 0 4px; }
+  .card p { margin: 2px 0; font-size: .85rem; color: #6b5a49; }
+  .more { display: block; width: 100%; padding: 12px; margin: 8px 0; border: 0; border-radius: 10px; background: #efe6da; font-size: .95rem; cursor: pointer; }
+  .error { background: #fdecea; color: #a12622; border-radius: 10px; padding: 12px 14px; }
+  .loading { color: #7a6652; }
+  .api-box { margin-top: 24px; padding: 12px 14px; background: #efe6da; border-radius: 10px; font-size: .85rem; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>☕ 성북구 카페 현황</h1>
+<p class="src">출처: 공공데이터포털(data.go.kr) 서울특별시 성북구 카페 현황 · 제공 기관이 갱신한 시점의 자료이며 실시간이 아닙니다.</p>
+
+<div class="map-wrap">
+  <svg id="map" viewBox="0 0 600 440" role="img" aria-label="성북구 동네별 카페 수 지도 일러스트"></svg>
+  <p class="map-note">※ 동 위치를 보기 쉽게 그린 개략도라 실제 경계·면적과 다릅니다. 법정동 기준이며 진할수록 카페가 많습니다. 동을 누르면 그 동네만 보입니다.</p>
+</div>
+
+<div class="search">
+  <input id="q" type="search" placeholder="카페 이름이나 주소로 검색" disabled>
+  <button id="reset" type="button" hidden>전체 보기</button>
+</div>
+<div class="count" id="count"></div>
+<div id="list" class="loading">불러오는 중…</div>
+<button id="more" class="more" type="button" hidden>더 보기</button>
+
+<div class="api-box">
+  <b>🔌 이 화면이 쓰는 API</b>
+  <div id="apiUrl">(호출 전)</div>
+  <div class="src">※ 인증키는 화면에 표시하지 않습니다.</div>
+</div>
+
+<!-- 🔑 인증키는 별도 파일(cafe-location.api.js)에 있다. 이 파일에는 키가 없다. -->
+<script src="cafe-location.api.js"></script>
+<script>
+// 🔌 API 주소는 cafe-location.api.js의 ENDPOINT, 키는 SERVICE_KEY. 그 외 요청 조건만 여기에 모은다.
+const API = {
+  endpoint: KEYS.ENDPOINT,          // 🔌
+  params: { page: 1, perPage: 2000 }, // 🔌 odcloud 방식 (기본 10건이라 크게 요청)
+};
+
+// 동네 그림: 법정동 이름 → 지도 도형 (개략도). 응답의 지번 주소에서 동 이름을 뽑아 연결한다.
+const DONGS = {
+  "정릉동":   { d: "M40,60 L240,30 L270,160 L200,200 L60,170 Z", x: 150, y: 110 },
+  "길음동":   { d: "M240,30 L380,50 L390,150 L270,160 Z", x: 320, y: 100 },
+  "장위동":   { d: "M380,50 L560,70 L540,200 L450,210 L420,150 L390,150 Z", x: 480, y: 125 },
+  "하월곡동": { d: "M270,160 L390,150 L400,230 L290,240 Z", x: 335, y: 200 },
+  "상월곡동": { d: "M390,150 L420,150 L450,210 L470,250 L400,230 Z", x: 432, y: 205, sm: true },
+  "석관동":   { d: "M450,210 L540,200 L560,330 L480,340 L470,250 Z", x: 510, y: 275 },
+  "종암동":   { d: "M290,240 L400,230 L470,250 L480,340 L380,330 L300,310 Z", x: 390, y: 285 },
+  "돈암동":   { d: "M200,200 L270,160 L290,240 L300,310 L230,340 L170,310 L160,230 Z", x: 232, y: 265 },
+  "성북동":   { d: "M60,170 L200,200 L160,230 L170,310 L100,300 L40,260 Z", x: 112, y: 245 },
+  "동소문동": { d: "M40,260 L100,300 L90,360 L30,340 Z", x: 62, y: 315, sm: true },
+  "삼선동":   { d: "M100,300 L170,310 L160,370 L110,410 L90,360 Z", x: 132, y: 345 },
+  "동선동":   { d: "M170,310 L230,340 L240,380 L160,370 Z", x: 200, y: 350 },
+  "안암동":   { d: "M230,340 L300,310 L380,330 L370,420 L260,410 L240,380 Z", x: 310, y: 372 },
+  "보문동":   { d: "M160,370 L240,380 L260,410 L170,430 L110,410 Z", x: 190, y: 408 },
+};
+
+const listEl = document.getElementById("list");
+const countEl = document.getElementById("count");
+const qEl = document.getElementById("q");
+const moreEl = document.getElementById("more");
+const resetEl = document.getElementById("reset");
+const PAGE = 50;
+let rows = [];
+let selDong = null;
+let shown = PAGE;
+
+function showError(reason) {
+  listEl.className = "error";
+  listEl.textContent = "사용 오류: " + reason;
+  countEl.textContent = "";
+}
+
+// 응답 안에서 객체 배열을 찾는다 (data.go.kr 응답 구조가 API마다 달라서)
+function findRows(node) {
+  if (Array.isArray(node)) return node.length && typeof node[0] === "object" ? node : null;
+  if (node && typeof node === "object") {
+    for (const v of Object.values(node)) { const r = findRows(v); if (r) return r; }
+  }
+  return null;
+}
+
+// "성북구 보문동4가 78-4" → "보문동", 지번이 없으면 도로명 끝 괄호 "(보문동4가)"에서 뽑는다
+function dongOf(r) {
+  const m = (r["소재지(지번)"] || "").match(/성북구\s*([가-힣]+?)(?:\d+가)?(?:\s|$)/)
+         || (r["소재지(도로명)"] || "").match(/\(([가-힣]+?)(?:\d+가)?[,)]/);
+  return m ? m[1] : "";
+}
+
+function drawMap() {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("map");
+  svg.replaceChildren();
+  const counts = {};
+  rows.forEach(r => { counts[r._dong] = (counts[r._dong] || 0) + 1; });
+  const max = Math.max(1, ...Object.values(counts));
+  for (const [name, g] of Object.entries(DONGS)) {
+    const n = counts[name] || 0;
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("d", g.d);
+    path.setAttribute("class", "dong" + (name === selDong ? " sel" : ""));
+    path.setAttribute("fill", "hsl(28 " + (35 + 40 * n / max) + "% " + (90 - 45 * n / max) + "%)");
+    path.addEventListener("click", () => { selDong = selDong === name ? null : name; shown = PAGE; drawMap(); render(); });
+    const title = document.createElementNS(NS, "title");
+    title.textContent = name + " " + n + "곳";
+    path.appendChild(title);
+    const label = document.createElementNS(NS, "text");
+    label.setAttribute("x", g.x); label.setAttribute("y", g.y);
+    label.setAttribute("class", "dlabel" + (g.sm ? " sm" : ""));
+    label.textContent = name;
+    const cnt = document.createElementNS(NS, "text");
+    cnt.setAttribute("x", g.x); cnt.setAttribute("y", g.y + 16);
+    cnt.setAttribute("class", "dcount");
+    cnt.textContent = n + "곳";
+    svg.append(path, label, cnt);
+  }
+}
+
+function render() {
+  const f = qEl.value.trim();
+  const hit = rows.filter(r =>
+    (!selDong || r._dong === selDong) &&
+    (!f || String(r["업소명"]).includes(f) || String(r["소재지(도로명)"]).includes(f) || String(r["소재지(지번)"]).includes(f)));
+  listEl.className = "";
+  listEl.replaceChildren();
+  hit.slice(0, shown).forEach(r => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const name = document.createElement("h2");
+    name.className = "name";
+    name.textContent = String(r["업소명"] || "(이름 없음)");
+    const addr = document.createElement("p");
+    addr.textContent = "📍 " + String(r["소재지(도로명)"] || r["소재지(지번)"] || "주소 없음");
+    card.append(name, addr);
+    if (r["건물내부면적"]) {
+      const a = document.createElement("p");
+      a.textContent = "건물 내부 면적 " + r["건물내부면적"] + "㎡";
+      card.appendChild(a);
+    }
+    listEl.appendChild(card);
+  });
+  if (!hit.length) { listEl.className = "loading"; listEl.textContent = "조건에 맞는 카페가 없어요."; }
+  const where = selDong ? selDong + " · " : "";
+  countEl.textContent = where + hit.length + "곳 / 전체 " + rows.length + "곳";
+  moreEl.hidden = hit.length <= shown;
+  resetEl.hidden = !selDong && !f;
+}
+
+async function load() {
+  if (!KEYS.ENDPOINT || KEYS.ENDPOINT.startsWith("여기에") || KEYS.SERVICE_KEY.startsWith("여기에")) {
+    return showError("cafe-location.api.js에 인증키와 요청주소를 넣어 주세요.");
+  }
+  const url = new URL(API.endpoint);
+  Object.entries(API.params).forEach(([k, v]) => url.searchParams.set(k, v));
+  document.getElementById("apiUrl").textContent = url.href; // 키 붙이기 전 주소만 표시
+  url.searchParams.set("serviceKey", KEYS.SERVICE_KEY);
+  try {
+    const res = await fetch(url); // 🔌 API 호출
+    if (!res.ok) return showError("HTTP 오류 " + res.status);
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch { return showError("JSON이 아닌 응답입니다 (인증키·요청주소 확인): " + text.slice(0, 120)); }
+    rows = findRows(json) || [];
+    if (!rows.length) return showError("값 없음 (응답에 목록이 없습니다)");
+    rows.forEach(r => { r._dong = dongOf(r); });
+    qEl.disabled = false;
+    drawMap();
+    render();
+  } catch (e) {
+    showError("호출 실패 (" + e.message + ") — 네트워크 또는 CORS 차단일 수 있어요");
+  }
+}
+qEl.addEventListener("input", () => { shown = PAGE; render(); });
+moreEl.addEventListener("click", () => { shown += PAGE; render(); });
+resetEl.addEventListener("click", () => { qEl.value = ""; selDong = null; shown = PAGE; drawMap(); render(); });
+load();
+</script>
+</body>
+</html>
