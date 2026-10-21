@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>날씨 무드 포스터</title>
+<style>
+  :root {
+    /* 🎨 데이터로 바뀌는 값: applyDesign()만 바꾼다 (지금 값은 "데이터 없음" 중립 회색) */
+    --hue: 0;
+    --sat: 0%;
+    --speed: 9s;
+    --tint: 0;
+    --sky-top: hsl(0 0% 38%);
+    --sky-bottom: hsl(0 0% 28%);
+    --ink: hsl(0 0% 100%);
+    --scrim: hsl(220 30% 6% / .62);
+    --play: paused;
+
+    /* 고정 색 (데이터와 무관) */
+    --page-bg: hsl(220 18% 9%);
+    --panel-bg: hsl(220 16% 15%);
+    --line: hsl(220 12% 30%);
+    --text: hsl(0 0% 94%);
+    --text-sub: hsl(220 12% 72%);
+    --link: hsl(205 90% 72%);
+    --warn: hsl(40 95% 70%);
+    --focus: hsl(205 100% 70%);
+
+    --poster-h: 420px;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page-bg); color: var(--text);
+    font-family: Pretendard, "Malgun Gothic", sans-serif; line-height: 1.5;
+  }
+  main { max-width: 420px; margin: 0 auto; padding: 16px; }
+  h1 { margin: 0 0 4px; font-size: 1.3rem; }
+  h2 { margin: 24px 0 8px; font-size: 1rem; }
+  .sub { margin: 0 0 16px; color: var(--text-sub); font-size: .85rem; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .controls label { flex: 1 1 100%; font-size: .85rem; color: var(--text-sub); }
+  select, button {
+    min-height: 44px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel-bg); color: var(--text); font: inherit; padding: 0 12px;
+  }
+  select { flex: 1 1 0; min-width: 0; }
+  button { cursor: pointer; }
+  select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  /* 포스터: 색은 전부 변수에서 온다 */
+  .poster {
+    position: relative; height: var(--poster-h); border-radius: 20px; overflow: hidden;
+    background:
+      linear-gradient(hsl(var(--hue) var(--sat) 50% / var(--tint)), hsl(var(--hue) var(--sat) 50% / var(--tint))),
+      linear-gradient(180deg, var(--sky-top), var(--sky-bottom));
+  }
+  .sky-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+  .flash { position: absolute; inset: 0; z-index: 2; display: none; opacity: 0; background: hsl(0 0% 100%); pointer-events: none; }
+  .poster[data-kind="storm"] .flash {
+    display: block; animation: flash calc(var(--speed) * .8 + 3s) linear infinite; animation-play-state: var(--play);
+  }
+  .readout {
+    position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 3;
+    padding: 14px 16px; border-radius: 14px; background: var(--scrim); color: var(--ink);
+  }
+  .readout p { margin: 0; }
+  .city { font-size: .9rem; }
+  .headline { font-size: 2.8rem; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+  .desc { font-size: 1rem; overflow-wrap: anywhere; }
+  .stamp { font-size: .85rem; margin-top: 4px !important; }
+
+  .status { margin: 10px 0 0; font-size: .85rem; color: var(--text-sub); min-height: 1.4em; }
+  .status.err { color: var(--warn); }
+
+  /* 파티클: 위치·길이는 --x --y --ph --k --sz --sd (0~1 비율) 와 --speed 로만 정해진다 */
+  .p {
+    position: absolute; left: calc(var(--x) * 100%);
+    --dur: max(.6s, calc(var(--speed) * var(--m, 1) * var(--k)));
+    animation-duration: var(--dur);
+    animation-delay: calc(var(--dur) * var(--ph) * -1);
+    animation-iteration-count: infinite; animation-timing-function: linear;
+    animation-play-state: var(--play);
+    will-change: transform, opacity;
+  }
+  html[data-hidden] .p, html[data-hidden] .flash { animation-play-state: paused; }
+
+  .poster[data-kind="rain"] .p, .poster[data-kind="storm"] .p {
+    --m: .3; --rot: 15deg; left: calc(var(--x) * 130%); top: -30px; width: 2px; height: 18px; border-radius: 2px;
+    background: hsl(210 60% 92% / .75); animation-name: fall;
+  }
+  .poster[data-kind="drizzle"] .p {
+    --m: .5; --rot: 15deg; left: calc(var(--x) * 130%); top: -20px; width: 1px; height: 10px;
+    background: hsl(210 50% 92% / .55); animation-name: fall;
+  }
+  .poster[data-kind="snow"] .p {
+    --m: .9; top: -12px; width: calc(3px + var(--sz) * 4px); height: calc(3px + var(--sz) * 4px); border-radius: 50%;
+    background: hsl(0 0% 100% / .9); animation-name: snow;
+  }
+  .poster[data-kind="clear"] .p {
+    --m: 1; bottom: -12px; width: 6px; height: 6px; border-radius: 50%;
+    background: hsl(48 100% 88% / .95); box-shadow: 0 0 10px 3px hsl(48 100% 80% / .5); animation-name: rise;
+  }
+  .poster[data-kind="cloud"] .p {
+    --m: 3; left: calc(var(--x) * 100% - 30%); top: calc(var(--y) * 70%); width: 60%; height: 70px; border-radius: 50%;
+    background: radial-gradient(ellipse, hsl(0 0% 100% / .4), hsl(0 0% 100% / 0) 70%); animation-name: cloud;
+  }
+  .poster[data-kind="fog"] .p {
+    --m: 2.5; left: calc(var(--x) * 100% - 30%); top: calc(var(--y) * 80%); width: 70%; height: 130px; border-radius: 50%;
+    background: radial-gradient(ellipse, hsl(0 0% 100% / .4), hsl(0 0% 100% / 0) 70%); animation-name: fog;
+  }
+
+  @keyframes fall {
+    from { transform: translate3d(0, 0, 0) rotate(15deg); }
+    to   { transform: translate3d(calc(var(--poster-h) * -.27), calc(var(--poster-h) + 40px), 0) rotate(15deg); }
+  }
+  @keyframes snow {
+    0%   { transform: translate3d(0, 0, 0); }
+    50%  { transform: translate3d(calc(var(--sd) * 18px), calc(var(--poster-h) * .5), 0); }
+    100% { transform: translate3d(0, calc(var(--poster-h) + 24px), 0); }
+  }
+  @keyframes rise {
+    0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+    20%  { opacity: .9; }
+    100% { transform: translate3d(calc(var(--sd) * 24px), calc(var(--poster-h) * -1), 0); opacity: 0; }
+  }
+  @keyframes cloud {
+    0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+    10%, 90% { opacity: 1; }
+    100% { transform: translate3d(260%, 0, 0); opacity: 0; }
+  }
+  @keyframes fog {
+    0%, 100% { transform: translate3d(-10%, 0, 0); opacity: .2; }
+    50%      { transform: translate3d(25%, 0, 0); opacity: .6; }
+  }
+  @keyframes flash {
+    0%, 92%, 100% { opacity: 0; }
+    94% { opacity: .35; }
+    96% { opacity: .08; }
+    97% { opacity: .25; }
+  }
+
+  /* 움직임이 꺼져도 숫자·색·입자 모양은 그대로, 입자는 제자리에 고정 */
+  @media (prefers-reduced-motion: reduce) {
+    .p { animation: none !important; top: calc(var(--y) * 100%) !important; bottom: auto !important; transform: rotate(var(--rot, 0deg)); }
+    .poster[data-kind="cloud"] .p, .poster[data-kind="fog"] .p { opacity: .8; }
+    .poster[data-kind="clear"] .p { opacity: .8; }
+    .flash { display: none !important; }
+  }
+
+  /* 🎨 대응표, 🔌 API 상자 */
+  .box { background: var(--panel-bg); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th, td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  th { color: var(--text-sub); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  .chip {
+    display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 4px;
+    background: hsl(var(--hue) var(--sat) 50%); border: 1px solid var(--text-sub);
+  }
+  .api-box { font-size: .85rem; }
+  .api-box p { margin: 0 0 8px; }
+  .api-box code { display: block; padding: 8px; border-radius: 8px; background: var(--page-bg); font-size: .78rem; overflow-wrap: anywhere; }
+  a { color: var(--link); }
+  footer { margin-top: 16px; font-size: .8rem; color: var(--text-sub); }
+</style>
+</head>
+<body>
+<main>
+  <h1>날씨 무드 포스터</h1>
+  <p class="sub">날씨 숫자가 포스터의 색·입자·속도·하늘을 바꿔요.</p>
+
+  <div class="controls">
+    <label for="region">지역 (대한민국)</label>
+    <select id="region"></select>
+    <button id="refresh" type="button">🔄 새로고침</button>
+  </div>
+
+  <section class="poster" id="poster" data-kind="none" aria-live="polite">
+    <div class="sky-layer" id="sky-layer" aria-hidden="true"></div>
+    <div class="flash" aria-hidden="true"></div>
+    <div class="readout">
+      <p class="city" id="city">📍 --</p>
+      <p class="headline" id="headline">불러오는 중…</p>
+      <p class="desc" id="desc">날씨를 불러오는 중…</p>
+      <p class="stamp" id="stamp"></p>
+    </div>
+  </section>
+  <p class="status" id="status" role="status"></p>
+
+  <h2>🎨 데이터 → 디자인</h2>
+  <div class="box">
+    <table>
+      <thead><tr><th>지금 값</th><th>바뀌는 변수</th><th>적용된 결과</th></tr></thead>
+      <tbody id="map-rows"></tbody>
+    </table>
+  </div>
+
+  <h2>🔌 이 화면이 쓰는 API</h2>
+  <div class="box api-box">
+    <p>실제로 부른 주소:</p>
+    <p><code id="api-url">아직 부르지 않았어요</code></p>
+    <p><a id="api-link" href="#" target="_blank" rel="noopener">새 탭에서 원본 JSON 보기</a></p>
+    <p id="api-grid">응답 위치: -</p>
+  </div>
+
+  <footer>
+    <p>Weather data by Open-Meteo.com · 15분 간격으로 갱신되는 데이터예요. 시각은 현지(Asia/Seoul) 기준이고, 위치는 격자 중심 기준이에요.</p>
+  </footer>
+</main>
+
+<script src="weather-poster.api.js"></script>
+<script>
+  "use strict";
+
+  // 🔌 API 주소(const API), 지역 목록(REGIONS)는 weather-poster.api.js 에 있다 (HTML보다 먼저 불러온다)
+
+  // 🎨 데이터 → 디자인 변환 규칙: 숫자 경계는 여기서만 고친다
+  const MAP = {
+    // 🎨 기온 → 색온도. t는 구간의 기준 기온이고, 그 사이는 직선으로 이어 붙인다 (계단 대신 부드럽게). 범위 밖은 양 끝 값 유지
+    temp: [
+      { t: 0,  hue: 215, sat: 55 }, // 🎨 0°C 이하: 물이 어는 온도라 가장 차가운 청색
+      { t: 5,  hue: 200, sat: 50 }, // 🎨 0~9°C: 10°C 미만은 "쌀쌀함"이라 차가운 청록
+      { t: 15, hue: 150, sat: 35 }, // 🎨 10~19°C: 가장 쾌적한 구간이라 채도를 낮춘 중립 초록
+      { t: 24, hue: 45,  sat: 55 }, // 🎨 20~27°C: 20°C부터 "따뜻함"이라 노랑 계열
+      { t: 31, hue: 25,  sat: 70 }, // 🎨 28~34°C: 28°C 이상은 "더운 날" 체감 구간이라 주황
+      { t: 35, hue: 5,   sat: 80 }  // 🎨 35°C 이상: 폭염 경보 기준이라 빨강에 채도 최대
+    ],
+
+    // 🎨 날씨 코드(WMO) → [말, 파티클 종류, (선택) 개수]. 표에 없는 코드는 파티클을 그리지 않고 "알 수 없는 코드"로 알린다
+    codes: {
+      0: ["맑음", "clear"], 1: ["대체로 맑음", "clear"],                     // 🎨 0·1은 둘 다 해가 보이는 날이라 같은 입자
+      2: ["구름 조금", "cloud", 5], 3: ["흐림", "cloud", 9],                  // 🎨 2는 부분 흐림, 3은 흐림: 구름 수로 차이를 둔다
+      45: ["안개", "fog"], 48: ["서리 안개", "fog"],
+      51: ["가벼운 이슬비", "drizzle"], 53: ["이슬비", "drizzle"], 55: ["강한 이슬비", "drizzle"],
+      56: ["얼어붙는 이슬비", "drizzle"], 57: ["강한 얼어붙는 이슬비", "drizzle"],
+      61: ["약한 비", "rain"], 63: ["비", "rain"], 65: ["강한 비", "rain"],
+      66: ["얼어붙는 비", "rain"], 67: ["강한 얼어붙는 비", "rain"],
+      71: ["약한 눈", "snow"], 73: ["눈", "snow"], 75: ["강한 눈", "snow"], 77: ["싸락눈", "snow"],
+      80: ["약한 소나기", "rain"], 81: ["소나기", "rain"], 82: ["강한 소나기", "rain"],  // 🎨 소나기(80~82)는 비와 같은 입자
+      85: ["약한 눈보라", "snow"], 86: ["강한 눈보라", "snow"],
+      95: ["천둥번개", "storm"], 96: ["천둥번개와 우박", "storm"], 99: ["강한 천둥번개와 우박", "storm"] // 🎨 95~99는 비 + 번쩍임
+    },
+    kinds: {
+      clear:   { label: "맑음 입자",  count: 40 },
+      cloud:   { label: "구름",       count: 7 },
+      fog:     { label: "안개",       count: 10 },
+      drizzle: { label: "이슬비 선",  count: 50 },  // 🎨 비보다 가늘고 적게: 약한 비의 느낌
+      rain:    { label: "빗줄기",     count: 120 },
+      snow:    { label: "눈송이",     count: 80 },
+      storm:   { label: "폭우+번개",  count: 140 }
+    },
+    maxParticles: 200, // 🎨 200개를 넘기면 저사양 폰에서 끊겨서 상한
+
+    // 🎨 풍속(km/h) → 입자가 한 번 움직이는 시간 --speed(초). 풍속이 셀수록 짧다 (below 미만이면 해당 구간)
+    wind: [
+      { below: 2,        speed: 14,  label: "고요" },        // 🎨 보퍼트 0~1: 거의 멈춘 듯
+      { below: 12,       speed: 9,   label: "실바람" },      // 🎨 보퍼트 1~2
+      { below: 29,       speed: 5,   label: "산들바람" },    // 🎨 보퍼트 3~4: 나뭇잎이 움직이는 정도
+      { below: 50,       speed: 2.5, label: "센 바람" },     // 🎨 보퍼트 5~6: 뚜렷하게 빠름
+      { below: Infinity, speed: 1.2, label: "매우 강한 바람" } // 🎨 50km/h 이상: 걷기 힘든 수준이라 최대 속도
+    ],
+
+    // 🎨 시각 + 일출/일몰 → 하늘. L은 하늘의 대표 명도(%), 글자색 전환에 쓴다. tint는 기온 색을 얹는 세기(0~1)
+    sky: {
+      dawnBefore: 30, dawnAfter: 30,   // 🎨 일출 전후 30분이 색이 가장 극적인 시간
+      duskBefore: 60, duskAfter: 30,   // 🎨 일몰 전 1시간~후 30분이 노을이 가장 진한 시간
+      phases: {
+        dawn:  { label: "새벽·일출", top: "hsl(250 40% 28%)", bottom: "hsl(18 85% 58%)",  tint: .18, L: 40 },
+        day:   { label: "낮",        top: "hsl(208 75% 62%)", bottom: "hsl(200 70% 85%)", tint: .40, L: 75 }, // 🎨 낮은 기온 색을 가장 진하게 얹는다
+        dusk:  { label: "석양",      top: "hsl(265 45% 30%)", bottom: "hsl(14 80% 55%)",  tint: .18, L: 40 },
+        night: { label: "밤",        top: "hsl(228 50% 8%)",  bottom: "hsl(228 40% 20%)", tint: .12, L: 14 }
+      }
+    },
+
+    // 🎨 글자색: 하늘 명도가 이 값 이상이면 어두운 글자, 미만이면 밝은 글자. 글자 뒤 반투명 판(scrim)으로 4.5:1을 보장
+    inkSwitchL: 55,
+    ink:   { dark: "hsl(220 35% 9%)", light: "hsl(0 0% 100%)" },
+    scrim: { light: "hsl(0 0% 100% / .62)", dark: "hsl(220 30% 6% / .62)" },
+
+    // 🎨 데이터가 없을 때: 그럴듯한 색 대신 중립 회색
+    neutral: { hue: 0, sat: "0%", speed: "9s", skyTop: "hsl(0 0% 38%)", skyBottom: "hsl(0 0% 28%)" }
+  };
+
+  // ---------- 화면 코드 ----------
+  const $ = id => document.getElementById(id);
+  const root = document.documentElement;
+  const finite = v => typeof v === "number" && Number.isFinite(v);
+  const frac = n => n - Math.floor(n);
+  const isStamp = s => typeof s === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(s);
+  const toMin = s => { const m = /T(\d\d):(\d\d)$/.exec(s); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+  const stampText = s => s.replace("T", " ");
+  const clock = d => d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+
+  let controller = null;   // 진행 중인 요청 (겹치면 이전 요청을 취소)
+  let last = null;         // 마지막 성공 { regionKey, data, at }
+  let regionKey = DEFAULT_REGION;
+
+  function buildUrl(region) {
+    const q = new URLSearchParams({
+      latitude: region.lat, longitude: region.lon,
+      current: API.current, daily: API.daily, timezone: API.timezone
+    });
+    return API.base + "?" + q.toString();
+  }
+
+  // 응답 → 화면용 값. 값이 없거나 단위가 다르면 그 항목만 issues에 이유를 남긴다 (대체값을 만들지 않는다)
+  function parse(json) {
+    if (!json || typeof json !== "object" || !json.current || typeof json.current !== "object") {
+      throw new Error("응답에 current(지금 값) 없음");
+    }
+    const c = json.current, u = json.current_units || {};
+    if (!isStamp(c.time)) throw new Error("응답에 기준 시각(current.time) 없음");
+
+    const issues = {};
+    let temp = c.temperature_2m, code = c.weather_code, wind = c.wind_speed_10m;
+    if (!finite(temp)) { issues.temp = "기온(temperature_2m) 값 없음"; temp = null; }
+    else if (u.temperature_2m !== "°C") { issues.temp = "기온 단위가 예상과 다름 (" + u.temperature_2m + ")"; temp = null; }
+    if (!finite(code)) { issues.code = "날씨 코드(weather_code) 값 없음"; code = null; }
+    if (!finite(wind)) { issues.wind = "풍속(wind_speed_10m) 값 없음"; wind = null; }
+    else if (u.wind_speed_10m !== "km/h") { issues.wind = "풍속 단위가 예상과 다름 (" + u.wind_speed_10m + ")"; wind = null; }
+
+    let sunrise = null, sunset = null;
+    const dly = json.daily;
+    const i = dly && Array.isArray(dly.time) ? dly.time.indexOf(c.time.slice(0, 10)) : -1;
+    if (i >= 0 && dly.sunrise && dly.sunset && isStamp(dly.sunrise[i]) && isStamp(dly.sunset[i])) {
+      sunrise = dly.sunrise[i]; sunset = dly.sunset[i];
+    } else {
+      issues.sky = "일출/일몰(sunrise, sunset) 값 없음";
+    }
+    const isDay = c.is_day === 0 || c.is_day === 1 ? c.is_day : null;
+    return { time: c.time, temp, code, wind, sunrise, sunset, isDay, issues, lat: json.latitude, lon: json.longitude };
+  }
+
+  function tempDesign(t) {
+    const a = MAP.temp;
+    if (t <= a[0].t) return { hue: a[0].hue, sat: a[0].sat };
+    for (let i = 1; i < a.length; i++) {
+      if (t <= a[i].t) {
+        const f = (t - a[i - 1].t) / (a[i].t - a[i - 1].t);
+        return {
+          hue: Math.round(a[i - 1].hue + (a[i].hue - a[i - 1].hue) * f),
+          sat: Math.round(a[i - 1].sat + (a[i].sat - a[i - 1].sat) * f)
+        };
+      }
+    }
+    const e = a[a.length - 1];
+    return { hue: e.hue, sat: e.sat };
+  }
+
+  function skyFor(data) {
+    const S = MAP.sky;
+    if (data.sunrise && data.sunset) {
+      const now = toMin(data.time), sr = toMin(data.sunrise), ss = toMin(data.sunset);
+      let key = "night";
+      if (now >= sr - S.dawnBefore && now < sr + S.dawnAfter) key = "dawn";
+      else if (now >= sr + S.dawnAfter && now < ss - S.duskBefore) key = "day";
+      else if (now >= ss - S.duskBefore && now < ss + S.duskAfter) key = "dusk";
+      return { key, how: "일출 " + data.sunrise.slice(11) + " · 일몰 " + data.sunset.slice(11) };
+    }
+    if (data.isDay !== null) { // 일출/일몰이 없을 때만: 낮/밤 두 가지로만 나눈다
+      return { key: data.isDay === 1 ? "day" : "night", how: "일출/일몰 없음 → is_day로 낮/밤만 구분" };
+    }
+    return null;
+  }
+
+  // 데이터 → { CSS 변수, 파티클, 대응표 행 }. 순수 계산만 한다
+  function designFrom(data) {
+    const N = MAP.neutral;
+    const vars = {
+      "--hue": String(N.hue), "--sat": N.sat, "--speed": N.speed, "--tint": "0",
+      "--sky-top": N.skyTop, "--sky-bottom": N.skyBottom,
+      "--ink": MAP.ink.light, "--scrim": MAP.scrim.dark, "--play": "paused"
+    };
+    const rows = [];
+    let kind = "none", count = 0, codeLabel = null;
+    const none = reason => "적용 안 함 (회색) · " + reason;
+
+    if (!data) {
+      rows.push({ now: "기온 없음", vars: "--hue, --sat", result: none("데이터 없음") });
+      rows.push({ now: "날씨 코드 없음", vars: "파티클 종류·개수", result: none("데이터 없음") });
+      rows.push({ now: "풍속 없음", vars: "--speed", result: none("데이터 없음") });
+      rows.push({ now: "시각 없음", vars: "--sky-top, --sky-bottom, --tint", result: none("데이터 없음") });
+      return { vars, kind, count, rows, codeLabel };
+    }
+
+    // 기온 → 색온도
+    let hasTemp = false;
+    if (data.temp !== null) {
+      const t = tempDesign(data.temp);
+      vars["--hue"] = String(t.hue); vars["--sat"] = t.sat + "%"; hasTemp = true;
+      rows.push({ now: "기온 " + data.temp + "°C", vars: "--hue, --sat", result: "hue " + t.hue + ", sat " + t.sat + "%", chip: true });
+    } else {
+      rows.push({ now: "기온 값 없음", vars: "--hue, --sat", result: none(data.issues.temp) });
+    }
+
+    // 날씨 코드 → 파티클
+    if (data.code !== null) {
+      const entry = MAP.codes[data.code];
+      if (entry) {
+        kind = entry[1];
+        count = Math.min(entry[2] || MAP.kinds[kind].count, MAP.maxParticles);
+        codeLabel = entry[0];
+        rows.push({ now: "코드 " + data.code + " · " + entry[0], vars: "파티클 종류·개수", result: MAP.kinds[kind].label + " " + count + "개" });
+      } else {
+        codeLabel = "알 수 없는 날씨 코드 " + data.code;
+        rows.push({ now: "코드 " + data.code, vars: "파티클 종류·개수", result: none("알 수 없는 코드") });
+      }
+    } else {
+      rows.push({ now: "날씨 코드 없음", vars: "파티클 종류·개수", result: none(data.issues.code) });
+    }
+
+    // 풍속 → 움직임 속도
+    if (data.wind !== null) {
+      const b = MAP.wind.find(w => data.wind < w.below);
+      vars["--speed"] = b.speed + "s"; vars["--play"] = "running";
+      rows.push({ now: "풍속 " + data.wind + " km/h", vars: "--speed", result: b.speed + "초 (" + b.label + ")" });
+    } else {
+      rows.push({ now: "풍속 값 없음", vars: "--speed", result: none(data.issues.wind) });
+    }
+
+    // 시각 + 일출/일몰 → 하늘
+    const sky = skyFor(data);
+    if (sky) {
+      const P = MAP.sky.phases[sky.key];
+      vars["--sky-top"] = P.top; vars["--sky-bottom"] = P.bottom;
+      if (hasTemp) vars["--tint"] = String(P.tint);
+      const dark = P.L >= MAP.inkSwitchL;
+      vars["--ink"] = dark ? MAP.ink.dark : MAP.ink.light;
+      vars["--scrim"] = dark ? MAP.scrim.light : MAP.scrim.dark;
+      rows.push({ now: data.time.slice(11) + " · " + sky.how, vars: "--sky-top, --sky-bottom, --tint, --ink", result: P.label + " (기온 색 " + Math.round(P.tint * 100) + "% 섞음, 글자 " + (dark ? "어두움" : "밝음") + ")" });
+    } else {
+      rows.push({ now: data.time.slice(11) + " · 일출/일몰 없음", vars: "--sky-top, --sky-bottom, --tint", result: none(data.issues.sky) });
+    }
+    return { vars, kind, count, rows, codeLabel };
+  }
+
+  // 입자 위치는 번호로 정한 고정 패턴이라 새로고침해도 튀지 않는다
+  function setParticles(kind, count) {
+    const layer = $("sky-layer");
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement("span");
+      el.className = "p";
+      el.style.setProperty("--x", frac(i * 0.6180339 + 0.1).toFixed(3));
+      el.style.setProperty("--y", frac(i * 0.7548777 + 0.3).toFixed(3));
+      el.style.setProperty("--ph", frac(i * 0.5698403 + 0.2).toFixed(3));
+      el.style.setProperty("--k", (0.75 + frac(i * 0.3247) * 0.5).toFixed(3));
+      el.style.setProperty("--sz", frac(i * 0.4142).toFixed(3));
+      el.style.setProperty("--sd", i % 2 ? "1" : "-1");
+      frag.appendChild(el);
+    }
+    layer.replaceChildren(frag);
+    $("poster").dataset.kind = kind;
+  }
+
+  // 데이터 → CSS 변수. 화면의 모양을 바꾸는 곳은 여기 하나
+  function applyDesign(data) {
+    const d = designFrom(data);
+    for (const [name, value] of Object.entries(d.vars)) root.style.setProperty(name, value);
+    setParticles(d.kind, d.count);
+    return d;
+  }
+
+  function renderTable(rows) {
+    const body = $("map-rows");
+    body.replaceChildren();
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      for (const key of ["now", "vars", "result"]) {
+        const td = document.createElement("td");
+        if (key === "result" && r.chip) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          td.appendChild(chip);
+        }
+        td.appendChild(document.createTextNode(r[key]));
+        tr.appendChild(td);
+      }
+      body.appendChild(tr);
+    }
+  }
+
+  function setPoster(city, headline, desc, stamp) {
+    $("city").textContent = city;
+    $("headline").textContent = headline;
+    $("desc").textContent = desc;
+    $("stamp").textContent = stamp;
+  }
+
+  function setStatus(text, isErr) {
+    const s = $("status");
+    s.textContent = text;
+    s.classList.toggle("err", !!isErr);
+  }
+
+  const regionOf = key => REGIONS.find(r => r.key === key);
+
+  function showData(data, key) {
+    const d = applyDesign(data);
+    const parts = [
+      d.codeLabel || data.issues.code || "날씨 코드 없음",
+      data.wind !== null ? "바람 " + data.wind + " km/h" : (data.issues.wind || "풍속 값 없음")
+    ];
+    setPoster("📍 " + regionOf(key).name, data.temp !== null ? data.temp + "°C" : "기온 값 없음", parts.join(" · "), stampText(data.time) + " 기준");
+    renderTable(d.rows);
+    $("api-grid").textContent = "응답 위치(격자 중심): " + data.lat + ", " + data.lon;
+  }
+
+  function showError(reason) {
+    const d = applyDesign(null);
+    setPoster("📍 " + regionOf(regionKey).name, "사용 오류", "이유: " + reason, "");
+    renderTable(d.rows);
+    $("api-grid").textContent = "응답 위치: 받지 못했어요";
+  }
+
+  function showLoading() {
+    const d = applyDesign(null);
+    setPoster("📍 " + regionOf(regionKey).name, "불러오는 중…", "날씨를 불러오는 중…", "");
+    renderTable(d.rows);
+  }
+
+  async function load() {
+    if (controller) controller.abort();   // 겹친 요청은 이전 것을 버린다
+    const ctrl = new AbortController();
+    controller = ctrl;
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, API.timeoutMs);
+
+    const key = regionKey;
+    const url = buildUrl(regionOf(key));
+    $("api-url").textContent = url;
+    $("api-link").setAttribute("href", url);
+
+    const keepOld = last && last.regionKey === key;  // 같은 지역 새로고침이면 이전 값을 유지
+    $("poster").setAttribute("aria-busy", "true");
+    if (keepOld) setStatus("새로 불러오는 중… (화면은 " + stampText(last.data.time) + " 기준 값)", false);
+    else { showLoading(); setStatus("불러오는 중…", false); }
+
+    try {
+      const res = await fetch(url, { signal: ctrl.signal }); // 🔌 API 호출
+      if (!res.ok) throw new Error("HTTP 오류 " + res.status);
+      let json;
+      try { json = await res.json(); } catch (e) { throw new Error("응답이 JSON이 아님"); }
+      const data = parse(json);
+      last = { regionKey: key, data, at: new Date() };
+      showData(data, key);
+      setStatus("마지막 성공 " + clock(last.at) + " · 15분 간격으로 갱신되는 데이터예요", false);
+    } catch (err) {
+      if (ctrl !== controller) return;   // 새 요청에 밀려 취소된 것: 조용히 끝
+      const reason = timedOut ? "응답 시간 초과 (" + API.timeoutMs / 1000 + "초)"
+        : err instanceof TypeError ? "네트워크 연결 실패"
+        : err.message;
+      if (keepOld) {
+        setStatus("마지막 성공 " + clock(last.at) + " · 사용 오류: " + reason + " (화면은 그때 값, " + stampText(last.data.time) + " 기준)", true);
+      } else {
+        showError(reason);
+        setStatus("사용 오류: " + reason, true);
+      }
+    } finally {
+      clearTimeout(timer);
+      if (ctrl === controller) $("poster").removeAttribute("aria-busy");
+    }
+  }
+
+  // 시작
+  const select = $("region");
+  for (const r of REGIONS) {
+    const opt = document.createElement("option");
+    opt.value = r.key;
+    opt.textContent = r.name;
+    select.appendChild(opt);
+  }
+  select.value = regionKey;
+  select.addEventListener("change", () => { regionKey = select.value; load(); });
+  $("refresh").addEventListener("click", load);
+  document.addEventListener("visibilitychange", () => root.toggleAttribute("data-hidden", document.hidden));
+  root.toggleAttribute("data-hidden", document.hidden);
+  load();
+</script>
+</body>
+</html>
